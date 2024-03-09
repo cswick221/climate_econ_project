@@ -1,0 +1,142 @@
+---
+title: "analysis"
+author: "Chloe Swick"
+date: "2024-03-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(readxl)
+library(here)
+```
+
+
+```{r}
+op_df <- read_excel(here("data", "YCOM7_publicdata.xlsx"), sheet =4)
+
+```
+
+
+```{r}
+op_texas_df <- op_df %>% 
+  filter(grepl("Texas", geoname)) %>% #filtering for all counties in Texas 
+  filter(!grepl("Missouri|Oklahom", geoname)) %>% #removing Texas County in Missouri and Oklahoma
+  select(!(x2010:x2015)) %>% #removed these rows because they don't have a ton of data 
+  filter(geoid != "48")  #removing state of texas responses 
+
+```
+
+```{r}
+texas_clean_df <- op_texas_df %>% 
+  pivot_longer(cols = 5:12, names_to = "year", values_to = "value") %>% 
+  pivot_wider(names_from = varname, values_from = value) %>% 
+  select(all_of(opinion_qs)) %>% 
+  filter(year != c("x2016", "x2017"))
+
+texas_clean_df$year<-  gsub("x","",as.character(texas_clean_df$year)) #removed weird x before year 
+  
+```
+
+
+```{r}
+opinion_qs <- c("geoid", "geoname", "year", "affectweather", "affectweather", "discuss",  "fundrenewables", "futuregen",  "governor", "happening", "harmus", "personal", "rebates", "regulate", "worried") # all of the opinion questions that are relevant imo, removed a couple that didn't have any data from before 2021
+```
+
+
+mutate_all(funs(str_replace(., "DeWitt", "Dewitt"))) %>% #attempting here to fix a data issue where half of years are under DeWitt other half are under Dewitt, gave up might just yeet this one  
+
+## I want to add a column for if the county was in or out of ERCOT 
+```{r}
+count_out <- c("Dallam County, Texas", "Sherman County, Texas", "Hansford County, Texas", "Ochiltree County, Texas", "Lipscomb County, Texas", "Hartley County, Texas", "Moore County, Texas", "Hutchinson County, Texas", "Hemphil County, Texas", "Bailey County, Texas", "Lamb County, Texas", "Cochran County, Texas", "Hockley County, Texas", "Yoakum County, Texas", "Terry County, Texas", "Gaines County, Texas", "El Paso County, Texas", "Hudspeth County, Texas", "Bowie County, Texas", "Morris County, Texas", "Camp County, Texas", "Upshur County, Texas", "Gregg County, Texas", "Cass County, Texas", "Marion County, Texas", "Harrison County, Texas", "Panola County, Texas", "Shelby County, Texas", "San Augustine County, Texas", "Sabine County, Texas", "Jasper County, Texas", "Newton County, Texas", "Tyler County, Texas", "Polk County, Texas", "Trinity County, Texas", "San Jacinto County, Texas", "Liberty County, Texas", "Hardin County, Texas", "Jefferson County, Texas", "Orange County, Texas", "Jasper County, Texas", "Newton County, Texas")
+
+north_counties_out <- c("Dallam", "Sherman", "Hansford", "Ochiltree", "Lipscomb", "Hartley", "Moore", "Hutchinson", "Hemphil", "Bailey", "Lamb", "Cochran", "Hockley", "Yoakum", "Terry", "Gaines")
+
+west_counties_out <- c("El Paso", "Hudspeth")
+
+east_counties_out <- c("Bowie", "Morris", "Camp", "Upshur", "Gregg", "Cass", "Marion", "Harrison", "Panola", "Shelby", "San Augustine", "Sabine", "Jasper", "Newton", "Tyler", "Polk", "Trinity", "San Jacinto", "Liberty", "Hardin", "Jefferson", "Orange", "Jasper", "Newton")
+```
+
+
+```{r}
+counties_out_df <- texas_clean_df %>% 
+  filter(geoname %in% count_out)
+
+counties_out_df$in_out <- rep(c("0"), times = 234) #adding a column that these counties are out 
+
+```
+
+```{r}
+counties_in_df <- texas_clean_df %>% 
+  filter(! geoname %in% count_out)
+
+counties_in_df$in_out <- rep(c("1"), times = 1296) #adding a column that these counties are in
+```
+
+##merging into 1 df 
+```{r}
+dind_df <- full_join(counties_in_df,counties_out_df) %>% 
+    mutate(pre_post_treatment = case_when(
+    in_out == 0 & year < 2022 ~ 0,
+    in_out == 0 & year >= 2022 ~ 1,
+    in_out == 1 & year < 2022 ~ 0,
+    in_out == 1 & year >= 2022 ~ 1,
+    TRUE ~ NA_integer_  # Default case, you can change NA to another value if needed
+  )) 
+
+dind_df <- dind_df[,c(1,2,3,15,16,4:14)]
+```
+
+
+#regression???? 
+```{r}
+dind_df_1 <- dind_df %>% 
+ select(1:6) 
+dind_df_1$time <- ifelse(dind_df_1$year >= 2022, 1, 0)
+
+dind_analysis_1 <- lm(affectweather ~ in_out + time + in_out * time, data = dind_df_1)
+
+summary(dind_analysis_1)
+```
+
+
+```{r}
+dind_df_2 <- dind_df %>% 
+ select(1:5, 16) 
+dind_df_2$time <- ifelse(dind_df_2$year >= 2022, 1, 0)
+
+dind_analysis_2 <- lm(worried ~ in_out + time + in_out * time, data = dind_df_2)
+
+summary(dind_analysis_2)
+```
+
+
+## regression for loop
+```{r}
+results_by_indicator <- data.frame()
+
+for (i in 1:11) {
+  # Subset the data for each indicator value
+  subset_data <- dind_df_all[dind_df_all$indicator_id == i, ]
+  
+  # Run linear regression with interaction
+  model <- lm(score ~ skylight_treatment + pre_post_treatment + skylight_treatment * pre_post_treatment, data = subset_data)
+  
+ tidy_results <- tidy(model) %>%
+    mutate(indicator = i)
+  
+  # Bind the results to the main data frame
+  results_by_indicator <- bind_rows(results_by_indicator, tidy_results)
+}
+
+did_regression_results <- results_by_indicator %>% 
+  filter(term == "skylight_treatment:pre_post_treatment") %>% 
+  janitor::clean_names() %>% 
+  rename(regression_estimate = estimate)
+```
+
+
+
+
