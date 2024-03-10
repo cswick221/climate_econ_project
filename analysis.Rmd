@@ -12,6 +12,9 @@ library(janitor)
 library(readxl)
 library(broom)
 library(here)
+
+# for fixed effects
+library(plm)
 ```
 
 ## Read in and filter data
@@ -164,5 +167,61 @@ did_regression_results <- results_by_indicator %>%
 ## fixed effects regression
 
 ```{r}
+
+id_var <- "geoid"
+time_var <- "year"
+
+# Transform your data into a pdata.frame
+pdata_df <- pdata.frame(dind_df_subset, index = c(id_var, time_var))
+
+# Fit a fixed effects model
+fixed_effects_model <- plm(worried ~ in_out + time + in_out * time, data = pdata_df, model = "within")
+
+# Print the fixed effects model summary
+summary(fixed_effects_model)
+```
+
+### Fixed effects regression loop
+
+```{r}
+
+# list of indicators
+indicators <- opinion_qs[!(opinion_qs %in% c("geoid", "geoname", "year"))]
+
+id_var <- "geoid"
+time_var <- "year"
+
+
+
+
+fe_results_by_indicator <- data.frame()
+
+for (i in 1:length(indicators)) {
+  
+  indicator_index = 5 + i
+  
+  dind_df_subset <- dind_df %>% 
+    select(1:5, indicator_index)
+  dind_df_subset$time <- ifelse(dind_df_subset$year >= 2022, 1, 0)
+  dind_df_subset <- dind_df_subset %>% 
+    mutate(lhs := get(indicators[i]))
+  
+  # Transform your data into a pdata.frame
+  pdata_df <- pdata.frame(dind_df_subset, index = c(id_var, time_var))
+  # Fit a fixed effects model
+  fe_model <- plm(lhs ~ in_out + time + in_out * time, data = pdata_df, model = "within")
+  summary(fe_model)
+  
+ tidy_fe_results <- tidy(fe_model) %>%
+    mutate(indicator = indicators[i])
+  
+  # Bind the results to the main data frame
+  fe_results_by_indicator <- bind_rows(fe_results_by_indicator, tidy_fe_results)
+}
+
+fe_did_regression_results <- fe_results_by_indicator %>% 
+  filter(term == "skylight_treatment:pre_post_treatment") %>% 
+  janitor::clean_names() %>% 
+  rename(regression_estimate = estimate)
 
 ```
