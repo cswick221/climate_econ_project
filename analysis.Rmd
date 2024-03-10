@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(janitor)
 library(readxl)
+library(broom)
 library(here)
 ```
 
@@ -36,7 +37,7 @@ op_texas_df <- op_df %>%
 ### Select questions and clean data
 
 ```{r}
-opinion_qs <- c("geoid", "geoname", "year", "affectweather", "affectweather", "discuss",  "fundrenewables", "futuregen",  "governor", "happening", "harmus", "personal", "rebates", "regulate", "worried") # all of the opinion questions that are relevant imo, removed a couple that didn't have any data from before 2021
+opinion_qs <- c("geoid", "geoname", "year", "affectweather", "discuss",  "fundrenewables", "futuregen",  "governor", "happening", "harmus", "personal", "rebates", "regulate", "worried") # all of the opinion questions that are relevant imo, removed a couple that didn't have any data from before 2021
 ```
 
 ```{r}
@@ -129,30 +130,6 @@ summary(dind_analysis_2)
 
 ```{r}
 
-results_by_indicator <- data.frame()
-
-for (i in 1:length(indicators)) {
-  # Subset the data for each indicator value
-  subset_data <- dind_df_all[dind_df_all$indicator_id == i, ]
-  
-  # Run linear regression with interaction
-  model <- lm(score ~ skylight_treatment + pre_post_treatment + skylight_treatment * pre_post_treatment, data = subset_data)
-  
- tidy_results <- tidy(model) %>%
-    mutate(indicator = i)
-  
-  # Bind the results to the main data frame
-  results_by_indicator <- bind_rows(results_by_indicator, tidy_results)
-}
-
-did_regression_results <- results_by_indicator %>% 
-  filter(term == "skylight_treatment:pre_post_treatment") %>% 
-  janitor::clean_names() %>% 
-  rename(regression_estimate = estimate)
-```
-
-```{r}
-
 # list of indicators
 indicators <- opinion_qs[!(opinion_qs %in% c("geoid", "geoname", "year"))]
 
@@ -166,7 +143,9 @@ for (i in 1:length(indicators)) {
   dind_df_subset <- dind_df %>% 
     select(1:5, indicator_index)
   dind_df_subset$time <- ifelse(dind_df_subset$year >= 2022, 1, 0)
-  model <- lm(indicators[i] ~ in_out + time + in_out * time, data = dind_df_subset)
+  dind_df_subset <- dind_df_subset %>% 
+    mutate(lhs := get(indicators[i]))
+  model <- lm(lhs ~ in_out + time + in_out * time, data = dind_df_subset)
   summary(model)
   
  tidy_results <- tidy(model) %>%
@@ -180,4 +159,10 @@ did_regression_results <- results_by_indicator %>%
   filter(term == "skylight_treatment:pre_post_treatment") %>% 
   janitor::clean_names() %>% 
   rename(regression_estimate = estimate)
+```
+
+## fixed effects regression
+
+```{r}
+
 ```
